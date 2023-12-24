@@ -1,0 +1,376 @@
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(DT)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(stats)
+library(factoextra)
+#dataset <- reactiveVal(NULL)
+ui <- dashboardPage(
+  dashboardHeader(title = "Dataset Analysis App"),
+  dashboardSidebar(
+    fileInput("file", "Choose a CSV file"),
+    menuItem("Table", tabName = "table", icon = icon("table")),
+    menuItem("Summary", tabName = "summary", icon = icon("list-alt")),
+    menuItem("Outliers", tabName = "outliers", icon = icon("trash")),
+    menuItem("Clean test", tabName = "cleaning", icon = icon("wrench")),
+    menuItem("Visualization", tabName = "Visualization", icon = icon("area-chart")),
+    menuItem("K-means", tabName = "kmeans", icon = icon("users")),
+    menuItem("Year Passing Tree", tabName = "decisiontree", icon = icon("sitemap")),
+    menuItem("Parent Status Tree", tabName = "decisiontree2", icon = icon("sitemap")),
+    menuItem("Address Type Tree", tabName = "decisiontree3", icon = icon("sitemap"))
+  ),
+  
+  dashboardBody(
+    tabItems(
+      tabItem(tabName = "summary",
+              fluidRow(
+                box(
+                  title = "Dataset Summary",
+                  solidHeader = TRUE,
+                  status = "info",
+                  width = 12,
+                  verbatimTextOutput("summary")
+                )
+              )
+      ),
+      tabItem(tabName = "Visualization",  # Corrected tabName with uppercase "V"
+              tabsetPanel(
+                tabPanel("Family Size", 
+                         fluidRow(
+                           column(12, plotOutput("family_size_pie"))
+                         )
+                ),
+                tabPanel("Internet Access",
+                         fluidRow(
+                           column(12, plotOutput("internet_access_pie"))
+                         )
+                ),
+                tabPanel("Study Time",
+                         fluidRow(
+                           column(12, plotOutput("study_time_pie"))
+                         )
+                ),
+                tabPanel("Gender",
+                         fluidRow(
+                           column(12, plotOutput("gender_pie"))
+                         )
+                ),
+                tabPanel("Age Histogram",
+                         fluidRow(
+                           column(12, plotOutput("age_histogram"))
+                         )
+                ),
+                tabPanel("Social Strength Bar",
+                         fluidRow(
+                           column(12, plotOutput("social_strength_bar"))
+                         )
+                ),
+                tabPanel("Grade Distribution Boxplots",
+                         fluidRow(
+                           column(12, plotOutput("grade_distribution_boxplots"))
+                         )
+                ),
+                tabPanel("Absences Histogram",
+                         fluidRow(
+                           column(12, plotOutput("absences_histogram"))
+                         )
+                ),
+                tabPanel("Social Histogram",
+                         fluidRow(
+                           column(12, plotOutput("social_histogram"))
+                         )
+                ),
+                tabPanel("Health Histogram",
+                         fluidRow(
+                           column(12, plotOutput("health_histogram"))
+                         )
+                ),
+                tabPanel("Grade 2 Boxplot",
+                         fluidRow(
+                           column(12, plotOutput("grade2_boxplot"))
+                         )
+                ),
+                tabPanel("Final Grade Boxplot",
+                         fluidRow(
+                           column(12, plotOutput("final_grade_boxplot"))
+                         )
+                ),
+                tabPanel("Grade 1 Correlation",
+                         fluidRow(
+                           column(12, plotOutput("grade1_correlation"))
+                         )
+                )
+              )
+      ),
+      tabItem(tabName = "cleaning",
+              box(
+                title = "Check Dataset",
+              h5("Number of Duplicate Values:"),
+              verbatimTextOutput("dup_values"),
+              h5("Number of Null Values:"),
+              verbatimTextOutput("null_values")
+              )
+      ),
+      tabItem(tabName = "outliers",
+              box(
+                title = "Check Dataset for Outliers",
+                status = "info",
+                width = 12,  # Set the width to 12 for full width
+                h5("Select a column to check for outliers:"),
+                selectInput("outlier_column", "Column", ""),
+                actionButton("remove_outliers_button", "Remove Outliers"),
+                h5("Removed outliers information:"),
+                verbatimTextOutput("outliers_removed_info")
+              )
+      ),
+      tabItem(tabName = "table",
+              fluidRow(
+                box(
+                  title = "Table",
+                  solidHeader = TRUE,
+                  status = "info",
+                  width = 12,
+                  DTOutput("table")
+                )
+              )
+      ),
+      tabItem(tabName = "kmeans",  # New tab for K-means
+              fluidRow(
+                column(6, plotOutput("kmeans_cluster_plot")),
+                column(6, verbatimTextOutput("kmeans_cluster_centers"))
+              )
+      ),
+      tabItem(tabName = "decisiontree",
+              fluidRow(
+                column(6, plotOutput("decisionTreePlot")),
+                column(6, verbatimTextOutput("tree_rules"))
+              )
+      ),
+      tabItem(tabName = "decisiontree2",
+              fluidRow(
+                column(12, plotOutput("decisionTreePlot2", width = "100%", height = "900px")),
+                column(12, verbatimTextOutput("tree2_rules"))
+              )
+      ),
+      tabItem(tabName = "decisiontree3",
+              fluidRow(
+                column(12, plotOutput("decisionTreePlot3", width = "100%", height = "700px")),
+                column(12, verbatimTextOutput("tree3_rules"))
+              )
+      )
+    )
+  )
+  )
+
+server <- function(input, output, session) {
+  dataset <- reactiveVal(NULL)
+  
+  observe({
+    req(input$file)
+    dataset(read.csv(input$file$datapath))
+  })
+  
+  observe({
+    updateSelectInput(session, "outlier_column", choices = names(Filter(is.numeric, dataset())), selected = input$outlier_column)
+  })
+  
+  identify_outliers <- function(column_data, threshold = 1.5) {
+    q1 <- quantile(column_data, 0.25)
+    q3 <- quantile(column_data, 0.75)
+    iqr <- q3 - q1
+    lower_bound <- q1 - threshold * iqr
+    upper_bound <- q3 + threshold * iqr
+    outliers <- column_data[column_data < lower_bound | column_data > upper_bound]
+    return(outliers)
+  }
+  
+  remove_outliers <- function(column_name) {
+    outliers <- identify_outliers(dataset()[[column_name]])
+    dataset_filtered <- dataset()[!dataset()[[column_name]] %in% outliers, ]
+    return(list(outliers_removed = outliers, dataset_filtered = dataset_filtered))
+  }
+  
+  observeEvent(input$remove_outliers_button, {
+    column_name <- input$outlier_column
+    result <- remove_outliers(column_name)
+    
+    output$outliers_removed_info <- renderPrint({
+      paste("Removed outliers from column '", column_name, "':", toString(result$outliers_removed))
+    })
+    
+    dataset(result$dataset_filtered)
+  })
+  # Move the declaration of Km outside of renderPlot
+  Mydata <- reactive({
+    select(dataset(),c(32:34)) %>%
+      scale()
+  })
+  
+  Km <- reactive({
+    kmeans(Mydata(), centers = 2, iter.max = 50, nstart = 50)
+  })
+  output$kmeans_cluster_plot <- renderPlot({
+    fviz_cluster(Km(), data = Mydata())  # Use Mydata() directly
+  })
+  
+  output$kmeans_cluster_centers <- renderPrint({
+    paste("Cluster Centers:", as.character(Km()$centers))
+  })
+  
+  output$table <- renderDT({
+    datatable(dataset(), options = list(scrollX = TRUE))
+  })
+  
+  output$summary <- renderPrint({
+    summary(dataset())
+  })
+  
+  output$dup_values <- renderPrint({
+    num_duplicates <- sum(duplicated(dataset()))
+    paste("Number of Duplicate Values: ", num_duplicates)
+  })
+  
+  output$null_values <- renderPrint({
+    num_nulls <- sum(is.na(dataset()))
+    paste("Number of Null Values: ", num_nulls)
+  })
+  output$family_size_pie <- renderPlot({
+    f_size <- table(dataset()$family_size)  # Corrected data frame name
+    percentage <- paste(round(100 * f_size / sum(f_size)), "%")
+    pie(f_size, labels = percentage, main = "Compare Family Size ", col = c("maroon", "lightpink"))
+    legend("bottomright", legend = c("greater than 3", "less or equal 3"), fill = c("maroon", "lightpink"))
+  })
+  
+  output$internet_access_pie <- renderPlot({
+    I_access <- table(dataset()$internet_access)  # Corrected data frame name
+    percentage <- paste(round(100 * I_access / sum(I_access)), "%")
+    pie(I_access, labels = percentage, main = "Have Internet Access", col = c("darkolivegreen2", "darkolivegreen3"))
+    legend("bottomright", legend = c("YES", "NO"), fill = c("darkolivegreen2", "darkolivegreen3"))
+  })
+  
+  output$study_time_pie <- renderPlot({
+    s_time <- table(dataset()$study_time)  # Corrected data frame name
+    percentage <- paste(round(100 * s_time / sum(s_time)), "%")
+    pie(s_time, labels = percentage, main = "Student Study Time", col = c("deepskyblue3" ,"deepskyblue","deepskyblue2","skyblue2"))
+    legend("bottomright", legend = c("<2h", ">10", "2:5h", "5:10h"), fill = c("deepskyblue3" ,"deepskyblue","deepskyblue2","skyblue2"))
+  })
+  
+  output$gender_pie <- renderPlot({
+    Gender <- table(dataset()$sex)  # Corrected data frame name
+    percentage <- paste(round(100 * Gender / sum(Gender)), "%")
+    pie(Gender, labels = percentage, main = "Compare Student Gender", col = c("pink", "deepskyblue3"))
+    legend("bottomright", legend = c("Female", "Male"), fill = c("pink", "deepskyblue3"))
+  })
+  
+  output$age_histogram <- renderPlot({
+    hist(dataset()$age, col = "plum", border = "black", main = "Student Age Frequency", xlab = "Student Age", ylab = "Number of Students (frequency)")
+  })
+  
+  output$social_strength_bar <- renderPlot({
+    bar <- ggplot(dataset(), aes(x = factor(social), fill = activities))
+    labs <- labs(x = "Social Strength", y = "Number of activities", title = "Relationship Between Social and Activities")
+    scale <- scale_x_discrete(labels = c("1" = "Very Low", "2" = "Low", "3" = "Medium", "4" = "High", "5" = "Very High"))
+    bar + geom_bar(position = "dodge", stat = "count") + labs + scale + theme_light()
+  })
+  
+  output$grade_distribution_boxplots <- renderPlot({
+    boxplot(x = dataset()$grade_1, main = "Distribution Students Grade 1", col = "skyblue", xlab = 'Grade 1')
+  })
+  
+  output$absences_histogram <- renderPlot({
+    hist(dataset()$absences, col = "lightgreen", main = "Students Absences  Frequency", xlab = "Student absences", ylab = "Numer of Student (frequency)")
+  })
+  output$social_histogram <- renderPlot({
+    plot <- ggplot(dataset(), aes(x = social)) +
+      geom_histogram(binwidth = 1, fill = "yellowgreen", color = "black") +
+      labs(title = "Students Social levels Frequency", x = "Student Social Levels", y = "Number of Students (Frequency)") +
+      scale_x_continuous(breaks = 1:5, labels = c("very low", "low", "medium", "high", "very high")) +
+      theme_light()
+    print(plot)
+  })
+  
+  # to show student health frequency from very low to very high using histogram
+  output$health_histogram <- renderPlot({
+    plot <- ggplot(dataset(), aes(x = health)) +
+      geom_histogram(binwidth = 1, fill = "cyan3", color = "black") +
+      labs(title = "Students Health levels Frequency", x = "Student Health Levels", y = "Number of Students (Frequency)") +
+      scale_x_continuous(breaks = 1:5, labels = c("very low", "low", "medium", "high", "very high")) +
+      theme_light()
+    print(plot)
+  })
+  
+  # to show correlation between Grade.1 and final grades
+  output$grade1_correlation <- renderPlot({
+    plot <- ggplot(dataset(), aes(grade_1, final_grade)) +
+      geom_point(aes(color = grade_1)) +
+      labs(x = "Students grade.1", y = "Students Final Grades", title = "Students Grade.1 And Final Grades") +
+      theme_light()
+    print(plot)
+  })
+  output$final_grade_boxplot <- renderPlot({
+    boxplot(x = dataset()$final_grade, main = "Distribution Students Final Grade", col = "yellow", xlab = 'Grade')
+  })
+  output$grade2_boxplot <- renderPlot({
+    boxplot(x = dataset()$grade_2, main = "Distribution Students Grade 2", col = "pink", xlab = 'Grade 2')
+  })
+  pass_fail_tree <- reactive({
+    mydataset <- dataset()
+    pass_fail <- subset(mydataset, select = -(student_id))
+    pass_fail <- cbind(pass_fail, "student")
+    pass_fail$student <- ifelse(pass_fail$grade_1 + pass_fail$grade_2 + pass_fail$final_grade >= 30, "Pass", "Fail")
+    treeds <- data.frame(pass_fail)
+    tree <- rpart(student ~ final_grade + study_time + grade_1 + grade_2, data = treeds, method = "class")
+    pruned_tree <- prune(tree, cp = 0.01)
+    return(pruned_tree)
+  })
+  # Render the decision tree plot
+  output$decisionTreePlot <- renderPlot({
+    rpart.plot(pass_fail_tree(),roundint = FALSE)
+  })
+  output$tree_rules <- renderPrint({
+    rules <- rpart.rules(pass_fail_tree(), roundint = FALSE)
+    print(rules)
+  })
+  #tree2
+  parent_status_tree <- reactive({
+    mydataset <- dataset()
+    parent_statustree <- subset(mydataset, select = -(student_id))
+    treeds <- data.frame(parent_statustree)
+    tree <- rpart(parent_status ~ family_size + address_type + father_job  + age, data = treeds, minsplit = 2)
+    pruned_tree <- prune(tree, cp = 0.01)
+    return(pruned_tree)
+  })
+  output$decisionTreePlot2 <- renderPlot({
+    rpart.plot(parent_status_tree(),roundint = FALSE)
+  })
+  output$tree2_rules <- renderPrint({
+    rules2 <- rpart.rules(parent_status_tree())
+    print(rules2)
+  })
+  
+  #Adsress Type tree
+  address_type_tree <- reactive({
+    mydataset <- dataset()
+    address_typetree <- subset(mydataset, select = -(student_id))
+    address_typetree<-subset( address_typetree, select = -(weekday_alcohol))
+    address_typetree<-subset( address_typetree, select = -(study_time))
+    address_typetree<-subset( address_typetree, select = -(weekend_alcohol))
+    treeds <- data.frame(address_typetree)
+    tree <- rpart(address_type ~ . , data = treeds,method = "class", model = TRUE)
+    pruned_tree <- prune(tree, cp = 0.01)
+    return(pruned_tree)
+  })
+  output$decisionTreePlot3 <- renderPlot({
+    rpart.plot(address_type_tree(),roundint = FALSE)
+  })
+  output$tree3_rules <- renderPrint({
+    rules3 <- rpart.rules(address_type_tree())
+    print(rules3)
+  })
+  
+}
+
+shinyApp(ui, server)
